@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Carnet · your vocabulary</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>
+    try {
+      const t = localStorage.getItem('theme');
+      if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.classList.add('dark');
+    } catch {}
+  </script>
+  <!-- Tailwind Play CDN: fine for a personal tool. For production, compile Tailwind instead. -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    const v = (n) => `rgb(var(--${n}) / <alpha-value>)`;
+    tailwind.config = {
+      theme: { extend: {
+        fontFamily: { sans: ['Figtree', 'system-ui', 'sans-serif'], display: ['"Bricolage Grotesque"', 'Figtree', 'sans-serif'] },
+        // Themed colors read CSS variables (see :root / html.dark below). brand, sun and mint stay the same in both themes.
+        colors: {
+          ink: v('ink'), paper: v('paper'), line: v('line'), surface: v('surface'),
+          accent: v('accent'), coral: v('coral'), mintink: v('mintink'),
+          brand: '#5B4BFF', sun: '#FFC83D', mint: '#0F8A63',
+        },
+      } },
+    };
+  </script>
+  <style>
+    :root { --ink: 30 27 58; --paper: 246 245 251; --surface: 255 255 255; --line: 228 225 242; --accent: 91 75 255; --coral: 217 58 74; --mintink: 15 138 99; }
+    html.dark { --ink: 236 234 255; --paper: 17 16 31; --surface: 27 25 48; --line: 52 49 82; --accent: 167 157 255; --coral: 255 123 136; --mintink: 61 219 165; color-scheme: dark; }
+    [x-cloak] { display: none !important; }
+    :focus-visible { outline: 3px solid #FFC83D; outline-offset: 2px; }
+    .card-scene { perspective: 1400px; }
+    .card-inner { position: relative; transform-style: preserve-3d; transition: transform .55s cubic-bezier(.2,.8,.2,1); }
+    .card-inner.is-flipped { transform: rotateY(180deg); }
+    .card-face { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+    .card-back { transform: rotateY(180deg); }
+    .card-front { background: radial-gradient(120% 90% at 100% 0%, #7E70FF 0%, #5B4BFF 55%, #4636E0 100%); }
+    @media (prefers-reduced-motion: reduce) { .card-inner { transition: none; } }
+  </style>
+  <script src="/assets/app.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+</head>
+<body class="min-h-screen bg-paper font-sans text-ink antialiased" x-data="vocab" x-cloak>
+
+  <header class="sticky top-0 z-10 border-b border-line bg-surface/85 backdrop-blur">
+    <div class="mx-auto flex max-w-3xl items-center justify-between gap-4 px-4 py-3">
+      <div class="flex items-center gap-2.5">
+        <span class="grid h-9 w-9 place-items-center rounded-xl bg-brand font-display text-lg font-bold text-white" aria-hidden="true">C</span>
+        <h1 class="font-display text-xl font-bold">Carnet</h1>
+      </div>
+      <div class="flex items-center gap-2">
+      <button type="button" @click="toggleTheme()" :aria-pressed="dark"
+              :aria-label="dark ? 'Switch to light mode' : 'Switch to dark mode'" :title="dark ? 'Light mode' : 'Dark mode'"
+              class="grid h-9 w-9 place-items-center rounded-full bg-paper text-ink/70 hover:text-ink">
+        <svg x-show="!dark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+        <svg x-show="dark" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+      </button>
+      <nav class="flex gap-1 rounded-full bg-paper p-1" aria-label="Sections">
+        <button type="button" @click="view = 'notebook'" :aria-current="view === 'notebook' ? 'page' : null"
+                class="rounded-full px-4 py-1.5 text-sm font-semibold transition" :class="view === 'notebook' ? 'bg-surface shadow-sm' : 'text-ink/60 hover:text-ink'">Words</button>
+        <button type="button" @click="view = 'practice'" :aria-current="view === 'practice' ? 'page' : null"
+                class="flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-semibold transition" :class="view === 'practice' ? 'bg-surface shadow-sm' : 'text-ink/60 hover:text-ink'">
+          Practice <span x-show="stats.due > 0" x-text="stats.due" class="rounded-full bg-sun px-1.5 text-xs font-bold text-[#1E1B3A]"></span>
+        </button>
+      </nav>
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-3xl px-4 py-6 sm:py-8">
+
+    <!-- ============ WORDS ============ -->
+    <section x-show="view === 'notebook'">
+
+      <!-- Today banner -->
+      <div class="flex flex-wrap items-center justify-between gap-4 rounded-3xl bg-brand p-5 text-white sm:p-6">
+        <div>
+          <p class="font-display text-2xl font-bold sm:text-3xl"
+             x-text="stats.total === 0 ? 'Add your first word' : (stats.due > 0 ? stats.due + ' ' + (stats.due === 1 ? 'word is' : 'words are') + ' ready' : 'You’re all caught up')"></p>
+          <p class="mt-1 text-sm text-white/80"
+             x-text="stats.total + ' ' + (stats.total === 1 ? 'word' : 'words') + ' in your notebook · ' + stats.boxes[4] + ' mastered'"></p>
+        </div>
+        <button type="button" x-show="stats.due > 0" @click="view = 'practice'"
+                class="rounded-full bg-sun px-5 py-2.5 text-sm font-bold text-[#1E1B3A] transition hover:brightness-95">Practice now</button>
+      </div>
+
+      <!-- Add / edit -->
+      <form @submit.prevent="save()" class="mt-5 rounded-3xl bg-surface p-5 shadow-sm ring-1 ring-line">
+        <h2 class="font-display text-lg font-bold" x-text="editingId ? 'Edit word' : 'New word'"></h2>
+        <div class="mt-4 grid gap-3 sm:grid-cols-2">
+          <label class="block text-sm font-medium">Word or phrase
+            <input x-ref="term" x-model="form.term" required maxlength="120" autocomplete="off"
+                   class="mt-1 w-full rounded-xl border-0 bg-paper px-4 py-3 text-base ring-1 ring-line focus:ring-2 focus:ring-brand">
+          </label>
+          <label class="block text-sm font-medium">Meaning
+            <input x-model="form.translation" required maxlength="255" autocomplete="off"
+                   class="mt-1 w-full rounded-xl border-0 bg-paper px-4 py-3 text-base ring-1 ring-line focus:ring-2 focus:ring-brand">
+          </label>
+          <label class="block text-sm font-medium sm:col-span-2">Example sentence <span class="font-normal text-ink/50">(optional)</span>
+            <textarea x-model="form.example" rows="2" maxlength="500"
+                      class="mt-1 w-full rounded-xl border-0 bg-paper px-4 py-3 text-base ring-1 ring-line focus:ring-2 focus:ring-brand"></textarea>
+          </label>
+          <label class="block text-sm font-medium">Tag <span class="font-normal text-ink/50">(optional)</span>
+            <input x-model="form.tag" list="tag-list" maxlength="40" autocomplete="off"
+                   class="mt-1 w-full rounded-xl border-0 bg-paper px-4 py-3 text-base ring-1 ring-line focus:ring-2 focus:ring-brand">
+            <datalist id="tag-list"><template x-for="t in tags" :key="t"><option :value="t"></option></template></datalist>
+          </label>
+        </div>
+        <p x-show="formError" x-text="formError" role="alert" class="mt-3 text-sm font-medium text-coral"></p>
+        <div class="mt-4 flex gap-2">
+          <button type="submit" :disabled="saving" x-text="editingId ? 'Save changes' : 'Add word'"
+                  class="rounded-full bg-brand px-6 py-2.5 text-sm font-bold text-white transition hover:bg-[#4636E0] disabled:opacity-60"></button>
+          <button type="button" x-show="editingId" @click="cancelEdit()" class="rounded-full px-5 py-2.5 text-sm font-semibold hover:bg-paper">Cancel</button>
+        </div>
+      </form>
+
+      <!-- Import -->
+      <details class="mt-3 rounded-3xl bg-surface p-5 shadow-sm ring-1 ring-line">
+        <summary class="cursor-pointer text-sm font-semibold">Import many words</summary>
+        <p class="mt-3 text-sm text-ink/70">Paste a JSON list with <code>term</code>, <code>translation</code>, and optionally <code>example</code> and <code>tag</code>. Words you already have are skipped.</p>
+        <textarea x-model="importText" rows="7" aria-label="JSON to import" spellcheck="false"
+                  class="mt-3 w-full rounded-xl border-0 bg-paper px-4 py-3 font-mono text-xs ring-1 ring-line focus:ring-2 focus:ring-brand"></textarea>
+        <p x-show="importErr" x-text="importErr" role="alert" class="mt-2 text-sm font-medium text-coral"></p>
+        <p x-show="importMsg" x-text="importMsg" role="status" class="mt-2 text-sm font-medium text-mintink"></p>
+        <button type="button" @click="importWords()" :disabled="importing || !importText.trim()"
+                class="mt-3 rounded-full bg-brand px-6 py-2.5 text-sm font-bold text-white disabled:opacity-60">Import words</button>
+      </details>
+
+      <!-- Filters -->
+      <div class="mt-8 flex flex-wrap gap-2">
+        <input type="search" x-model="search" @input.debounce.250ms="loadWords()" placeholder="Search your words" aria-label="Search words"
+               class="min-w-0 flex-1 rounded-full border-0 bg-surface px-5 py-2.5 text-sm ring-1 ring-line focus:ring-2 focus:ring-brand">
+        <select x-model="tagFilter" @change="loadWords()" aria-label="Filter by tag" class="rounded-full border-0 bg-surface py-2.5 pl-4 pr-9 text-sm ring-1 ring-line">
+          <option value="">All tags</option>
+          <template x-for="t in tags" :key="t"><option :value="t" x-text="t"></option></template>
+        </select>
+        <select x-model="sort" @change="changeSort()" aria-label="Sort order" class="rounded-full border-0 bg-surface py-2.5 pl-4 pr-9 text-sm ring-1 ring-line">
+          <option value="newest">Newest first</option>
+          <option value="az">A to Z</option>
+          <option value="random">Shuffled</option>
+        </select>
+        <button type="button" x-show="sort === 'random'" @click="reshuffle()"
+                class="rounded-full bg-sun px-5 py-2.5 text-sm font-bold text-[#1E1B3A]">Reshuffle</button>
+      </div>
+
+      <!-- List -->
+      <ul class="mt-4 space-y-2">
+        <template x-for="w in words" :key="w.id">
+          <li class="flex items-start justify-between gap-4 rounded-2xl bg-surface p-4 ring-1 ring-line">
+            <div class="min-w-0">
+              <p class="break-words font-display text-xl font-bold leading-snug" x-text="w.term"></p>
+              <p class="break-words text-ink/80" x-text="w.translation"></p>
+              <p x-show="w.example" class="mt-1 break-words text-sm text-ink/55" x-text="w.example"></p>
+              <div class="mt-3 flex items-center gap-3 text-xs">
+                <span x-show="w.tag" x-text="w.tag" class="rounded-full bg-brand/10 px-2.5 py-1 font-semibold text-accent"></span>
+                <span class="flex items-center gap-1" :title="'Level ' + w.box + ' of 5'" :aria-label="'Level ' + w.box + ' of 5'">
+                  <template x-for="n in 5"><span class="h-2 w-2 rounded-full" :class="n <= w.box ? 'bg-brand' : 'bg-line'"></span></template>
+                </span>
+              </div>
+            </div>
+            <div class="flex shrink-0 gap-1 text-sm font-semibold">
+              <button type="button" @click="edit(w)" class="rounded-full px-3 py-1.5 hover:bg-paper">Edit</button>
+              <button type="button" @click="remove(w)" class="rounded-full px-3 py-1.5 text-coral hover:bg-paper">Delete</button>
+            </div>
+          </li>
+        </template>
+        <li x-show="!words.length && !loadingWords" class="rounded-2xl bg-surface p-8 text-center text-sm text-ink/70 ring-1 ring-line"
+            x-text="search || tagFilter ? 'No words match your search.' : 'Nothing here yet. Add your first word above.'"></li>
+      </ul>
+
+      <div x-show="total > 0" class="mt-4 flex items-center justify-between gap-3 text-sm text-ink/60">
+        <p x-text="'Showing ' + words.length + ' of ' + total"></p>
+        <button type="button" x-show="words.length < total" @click="loadWords(true)" :disabled="loadingMore"
+                class="rounded-full bg-surface px-5 py-2.5 font-semibold text-ink ring-1 ring-line hover:bg-line/40 disabled:opacity-60">Load more</button>
+      </div>
+    </section>
+
+    <!-- ============ PRACTICE ============ -->
+    <section x-show="view === 'practice'">
+
+      <!-- Setup -->
+      <div x-show="!session.active" class="rounded-3xl bg-surface p-5 shadow-sm ring-1 ring-line sm:p-6">
+        <h2 class="font-display text-2xl font-bold">Ready when you are</h2>
+
+        <p class="mt-5 text-sm font-semibold">Which cards?</p>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <template x-for="o in [['due', 'Due for review'], ['all', 'All words']]" :key="o[0]">
+            <button type="button" @click="setup.mode = o[0]" :aria-pressed="setup.mode === o[0]" x-text="o[1]"
+                    class="rounded-full px-4 py-2 text-sm font-semibold transition" :class="setup.mode === o[0] ? 'bg-brand text-white' : 'bg-paper hover:bg-line'"></button>
+          </template>
+        </div>
+
+        <p class="mt-5 text-sm font-semibold">What do you see first?</p>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <template x-for="o in [['term', 'The word'], ['reverse', 'The meaning'], ['mixed', 'A mix']]" :key="o[0]">
+            <button type="button" @click="setup.direction = o[0]" :aria-pressed="setup.direction === o[0]" x-text="o[1]"
+                    class="rounded-full px-4 py-2 text-sm font-semibold transition" :class="setup.direction === o[0] ? 'bg-brand text-white' : 'bg-paper hover:bg-line'"></button>
+          </template>
+        </div>
+
+        <div class="mt-5 grid gap-3 sm:grid-cols-2">
+          <label class="block text-sm font-semibold">Cards per session
+            <select x-model.number="setup.limit" class="mt-2 w-full rounded-xl border-0 bg-paper px-4 py-3 text-base font-normal ring-1 ring-line">
+              <option>10</option><option>20</option><option>50</option><option>100</option>
+            </select></label>
+          <label class="block text-sm font-semibold">Tag
+            <select x-model="setup.tag" class="mt-2 w-full rounded-xl border-0 bg-paper px-4 py-3 text-base font-normal ring-1 ring-line">
+              <option value="">All tags</option>
+              <template x-for="t in tags" :key="t"><option :value="t" x-text="t"></option></template>
+            </select></label>
+        </div>
+
+        <p class="mt-6 text-sm font-semibold">Your words by level</p>
+        <div class="mt-2 grid grid-cols-5 gap-2 text-center">
+          <template x-for="(count, i) in stats.boxes" :key="i">
+            <div class="rounded-2xl bg-paper py-3"><p class="font-display text-xl font-bold" x-text="count"></p><p class="text-xs text-ink/60" x-text="'Level ' + (i + 1)"></p></div>
+          </template>
+        </div>
+        <p class="mt-2 text-xs text-ink/60">Know a word and it moves up a level, so you see it less often. Miss it and it goes back to level 1.</p>
+
+        <p x-show="sessionError" x-text="sessionError" role="alert" class="mt-3 text-sm font-medium text-coral"></p>
+        <button type="button" @click="startSession()" class="mt-6 w-full rounded-full bg-brand px-6 py-3.5 font-bold text-white transition hover:bg-[#4636E0] sm:w-auto">Start session</button>
+      </div>
+
+      <!-- Card -->
+      <div x-show="session.active && !session.done">
+        <div class="flex items-center gap-3 text-sm font-medium">
+          <div class="h-2.5 flex-1 overflow-hidden rounded-full bg-line" role="progressbar" :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100">
+            <div class="h-full rounded-full bg-brand transition-all" :style="'width:' + progress + '%'"></div>
+          </div>
+          <span class="tabular-nums" x-text="session.answered + ' / ' + session.total"></span>
+          <button type="button" @click="endSession()" class="rounded-full px-3 py-1.5 text-ink/60 hover:bg-surface">End</button>
+        </div>
+
+        <div class="card-scene mx-auto mt-6 h-80 w-full max-w-xl sm:h-96">
+          <div class="card-inner h-full w-full cursor-pointer" :class="flipped && 'is-flipped'"
+               role="button" tabindex="0" :aria-pressed="flipped" @click="flip()">
+            <div class="card-face card-front absolute inset-0 flex flex-col items-center justify-center rounded-[2rem] p-8 text-center text-white shadow-xl shadow-brand/25">
+              <p x-show="current?.tag" x-text="current?.tag" class="absolute left-6 top-6 rounded-full bg-white/20 px-3 py-1 text-xs font-semibold"></p>
+              <p class="break-words font-display text-4xl font-bold leading-tight sm:text-5xl" x-text="frontText"></p>
+              <p class="absolute bottom-5 text-xs text-white/70">Tap to flip</p>
+            </div>
+            <div class="card-face card-back absolute inset-0 flex flex-col items-center justify-center rounded-[2rem] bg-surface p-8 text-center shadow-xl shadow-brand/15 ring-1 ring-line">
+              <p class="break-words font-display text-3xl font-bold leading-tight text-accent sm:text-4xl" x-text="backText"></p>
+              <p x-show="current?.example" x-text="current?.example" class="mt-5 max-w-sm break-words text-ink/70"></p>
+            </div>
+          </div>
+        </div>
+
+        <div class="mx-auto mt-6 flex max-w-xl gap-3">
+          <button type="button" x-show="!flipped" @click="flip()" class="w-full rounded-full bg-ink px-6 py-3.5 font-bold text-paper">Show answer</button>
+          <button type="button" x-show="flipped" @click="answer(false)" class="flex-1 rounded-full bg-surface px-6 py-3.5 font-bold text-coral ring-2 ring-coral hover:bg-coral/5">Missed it</button>
+          <button type="button" x-show="flipped" @click="answer(true)" class="flex-1 rounded-full bg-mint px-6 py-3.5 font-bold text-white hover:brightness-110">Got it</button>
+        </div>
+        <p class="mt-3 hidden text-center text-xs text-ink/50 sm:block">Space flips · 1 missed · 2 got it</p>
+        <p x-show="sessionError" x-text="sessionError" role="alert" class="mt-2 text-center text-sm font-medium text-coral"></p>
+      </div>
+
+      <!-- Summary -->
+      <div x-show="session.active && session.done" class="rounded-3xl bg-surface p-8 text-center shadow-sm ring-1 ring-line">
+        <template x-if="session.total === 0">
+          <div><h2 class="font-display text-2xl font-bold">Nothing to review</h2>
+            <p class="mt-2 text-sm text-ink/70">No cards match right now. Add words, or practice all of them.</p></div>
+        </template>
+        <template x-if="session.total > 0">
+          <div><h2 class="font-display text-3xl font-bold">Nice work 🎉</h2>
+            <div class="mt-5 flex justify-center gap-3">
+              <div class="min-w-24 rounded-2xl bg-mint/10 px-5 py-3"><p class="font-display text-3xl font-bold text-mintink" x-text="session.known"></p><p class="text-xs font-medium">known</p></div>
+              <div class="min-w-24 rounded-2xl bg-coral/10 px-5 py-3"><p class="font-display text-3xl font-bold text-coral" x-text="session.missed"></p><p class="text-xs font-medium">to revisit</p></div>
+            </div></div>
+        </template>
+        <div class="mt-6 flex flex-wrap justify-center gap-2">
+          <button type="button" @click="endSession()" class="rounded-full bg-brand px-6 py-2.5 text-sm font-bold text-white">Another session</button>
+          <button type="button" @click="endSession(); view = 'notebook'" class="rounded-full px-5 py-2.5 text-sm font-semibold hover:bg-paper">Back to words</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
